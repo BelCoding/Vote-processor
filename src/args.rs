@@ -1,4 +1,3 @@
-extern crate clap;
 use clap::Parser;
 
 // Enter new line after each doc line
