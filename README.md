@@ -60,11 +60,14 @@ cargo test -- --show-output
 
 ## TODOs
 
+This is a simplified demo. But if there were more hours to work on this project, a bunch of requirements should be defined and then some code will be accordingly refactored. Some of these points are commented below:
+
 Nice TODOs:
 To define requirements for invalid input files, invalid choice ids or invalid lines in the ballots input file.
 Based on these requirements implement the error handling, for example:
 - Counting could be either interrupted or skip the errors just logging an error message.
 - Errors could be propagated to the caller using ? operator and returning Result, to give more control to the caller.
+Like it is proven in ContestResult::save_results_json()
 
 Business logic details:
 - The programm asserts with E_INVADID_CONTEST_ID message when a contest_id in votes_file is wrong.
