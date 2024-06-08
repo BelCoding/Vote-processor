@@ -1,0 +1,1 @@
+"{\n  \"contest_id\": 1,\n  \"total_votes\": 4,\n  \"results\": [\n    {\n      \"choice_id\": 1,\n      \"total_count\": 2\n    },\n    {\n      \"choice_id\": 3,\n      \"total_count\": 1\n    },\n    {\n      \"choice_id\": 2,\n      \"total_count\": 1\n    }\n  ],\n  \"winner\": {\n    \"id\": 1,\n    \"text\": \"Rust\"\n  }\n}"
