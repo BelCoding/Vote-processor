@@ -1,31 +1,178 @@
-use serde_json;
 use counter::Counter;
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::{collections::HashMap, fs::File};
+
+// Errors
+const E_INVALID_JSON: &str = "Invalid JSON format.";
+const E_INVADID_CONTEST_ID: &str = "Invalid contest ID.";
+const E_READ: &str = "Could not read the file.";
+const E_CREATE_FILE: &str = "Cannot not create the file.";
+const E_SERIALIZE: &str = "Error to serialize.";
+const E_DESERIALIZE: &str = "Error to deserialize.";
+const E_WINNER_DATA: &str = "Error getting the Winner data.";
+
+/// Mimics the content in the Jsonfil for each choice.
+#[derive(Debug, Deserialize, Serialize)]
+struct Choice {
+    id: u64,
+    text: String,
+}
+
+/// Each line in the input file must represent a Ballot like this
+#[derive(Debug, Deserialize)]
+struct Ballot {
+    contest_id: u64,
+    choice_id: u64,
+}
 
 /// Contest, holds the ID, description and choices of the contest
 ///  to register the candidatures JSON file.
-/// Every vote as input will contain the choice_id (of a candidate).
 #[derive(Debug)]
 pub struct Contest {
     contest_id: u64,
     description: String,
-    choices: Counter<u32, String>
+    choices: HashMap<u64, String>,
 }
 
 impl Contest {
-
     /// Reads the candidatures JSON file and returns a Contest Object.
     pub fn new(candidatures_file: &str) -> Self {
+        let file = std::fs::read_to_string(candidatures_file).expect(E_READ);
+        let contest: serde_json::Value = serde_json::from_str(file.as_str()).expect(E_INVALID_JSON);
 
-        let file = std::fs::read_to_string(candidatures_file).expect("Could not read the file.");
-        let choices: serde_json::Value = serde_json::from_str(file.as_str()).expect("Invalid JSON");
-        dbg!(&choices);
-        
-        Contest{
-            contest_id: choices["id"].as_u64().expect("Contest id could not be parsed"),
-            description: choices["description"].to_string(),
-            // TODO: Deserialize de Value::array into a Counter
-            choices: Counter::default(),
+        Contest {
+            contest_id: contest["id"].as_u64().expect(E_INVALID_JSON),
+            description: contest["description"].to_string(),
+            choices: Self::deserialize_choices_array(contest["choices"].clone()),
         }
+    }
+
+    /// Parses the Json Value that points to the array of candidates.
+    fn deserialize_choices_array(array: serde_json::Value) -> HashMap<u64, String> {
+        let mut choices: HashMap<u64, String> = HashMap::new();
+
+        // Note: There might be a way to deserialize directly into a map
+        // look into de serde documetnation
+        for element in array.as_array().expect(E_INVALID_JSON) {
+            let json_choice: Choice = serde_json::from_value(element.clone()).expect(E_DESERIALIZE);
+            choices.insert(json_choice.id, json_choice.text);
+        }
+        choices
+    }
+
+    // Getter functions for contest id, contest description and choices
+    pub fn get_contest_id(&self) -> u64 {
+        self.contest_id
+    }
+
+    pub fn get_description(&self) -> &str {
+        self.description.as_str()
+    }
+}
+
+/// Mimics the content of one choice in the contest result (output file)
+#[derive(Debug, Serialize)]
+struct ChoiceResult {
+    choice_id: u64,
+    total_count: u64,
+}
+
+/// The whole contest result output JSON file
+#[derive(Debug, Serialize)]
+pub struct ContestResult {
+    contest_id: u64,
+    total_votes: u64,
+    results: Vec<ChoiceResult>,
+    winner: Choice,
+}
+
+/// Implement serialize to JSON for ContestResult with all fields set to dummy values
+impl ContestResult {
+    /// Creates a ContestResult object and computes the results on it.
+    /// The first arg is the Contest obj that you must have created first.
+    ///
+    /// The input_file must contain the ballots in JSON format.
+    /// Every vote as input will contain the context_id and the choice_id (of a candidate).
+    ///
+    /// Check save_results_json to serialize the results into a file.
+    pub fn new(contest: Contest, input_file: &str) -> Self {
+        let mut winner_id = 0;
+        let mut winner_text = "".to_string();
+        let (results, total_votes) = Self::count_ballots(contest.contest_id, input_file);
+        if total_votes > 0 {
+            winner_id = results.first().expect(E_WINNER_DATA).choice_id;
+            winner_text = contest
+                .choices
+                .get(&winner_id)
+                .expect(E_WINNER_DATA)
+                .to_string();
+        }
+
+        ContestResult {
+            contest_id: contest.contest_id,
+            total_votes,
+            results,
+            winner: Choice {
+                id: winner_id,
+                text: winner_text,
+            },
+        }
+    }
+
+    /// Returns a pair with
+    /// - An ordered vector with the results ready to be serialized
+    /// - The total votes
+    /// The vector is ordered like the most voted first.
+    fn count_ballots(contest_id: u64, input_file: &str) -> (Vec<ChoiceResult>, u64) {
+        let mut map: HashMap<u64, u64> = HashMap::new(); // meaning HashMap<choice_id, count>
+        let f = File::open(input_file).expect(E_INVALID_JSON);
+        let mut reader = BufReader::new(f);
+
+        let mut total_votes: u64 = 0;
+        let mut line = String::new();
+        // Print each line in a loop untill the end of the file is reached
+        while reader.read_line(&mut line).is_ok_and(|bytes| bytes > 0) {
+            if !line.trim().is_empty() {
+                let ballot: Ballot = serde_json::from_str(line.trim()).expect(E_INVALID_JSON);
+                dbg!(&ballot);
+                assert!(ballot.contest_id == contest_id, "{}", E_INVADID_CONTEST_ID);
+                // insert in map ballot.choice_id key with value 1, but if it exists update the value +1
+                map.entry(ballot.choice_id)
+                    .and_modify(|counter| *counter += 1)
+                    .or_insert(1);
+                total_votes = total_votes + 1;
+            }
+
+            line.clear();
+        }
+
+        // Order the map, the most common at the beginning
+        let ordered_vector = map.into_iter().collect::<Counter<u64, u64>>().most_common();
+        dbg!(&ordered_vector);
+
+        let mut results: Vec<ChoiceResult> = vec![];
+        // Iterate over ordered_vector and save each pair element into results vector
+        for (key, value) in ordered_vector {
+            results.push(ChoiceResult {
+                choice_id: key,
+                total_count: value,
+            });
+        }
+
+        (results, total_votes)
+    }
+
+    /// Creates a JSON file, serialize ContestResult
+    /// and write the content into the file.
+    pub fn save_results_json(&self, output_file: &str) -> std::io::Result<()> {
+        let content: String = serde_json::to_string_pretty(&self).expect(E_SERIALIZE);
+        let file = File::create(output_file).expect(E_CREATE_FILE);
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer(&mut writer, &format!("{}", content))?;
+        writer.flush()?;
+        Ok(())
     }
 }
 
@@ -34,11 +181,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_choices() {
+    #[should_panic(expected = "Invalid JSON format.")]
+    fn test_empty_choices_file() {
+        let input_file = "./test-data/candidatures_empty.json";
+        let _contest = Contest::new(input_file);
+    }
+
+    #[test]
+    fn test_basic_parse_choices_file() {
         // let input_file = "/home/calitanuc/Projects/poll/candidatures.json";
         let input_file = "./test-data/candidatures.json";
-        let choices = Contest::new(input_file);
-        assert_eq!(choices.contest_id, 1);
-        assert_eq!(choices.description, "\"Best Programming Language\"");
+        let contest = Contest::new(input_file);
+        assert_eq!(contest.contest_id, 1);
+        assert_eq!(contest.description, "\"Best Programming Language\"");
+        assert_eq!(contest.choices.len(), 3);
+        assert_eq!(contest.choices.get(&1).unwrap(), "Rust");
+    }
+
+    #[test]
+    fn test_empty_ballots_file() {
+        let candidatures_file = "./test-data/candidatures.json";
+        let votes_file = "./test-data/voting_ballots_empty.json";
+        let contest = Contest::new(candidatures_file);
+        let contest_result = ContestResult::new(contest, votes_file);
+        assert_eq!(contest_result.total_votes, 0);
     }
 }
