@@ -225,7 +225,7 @@ mod tests {
     // In case of draw the winner will depend on the position when hashing the map
     // The business logic in this case is not handled.
     #[test]
-    fn test_basic_contest_result_rust_by_one() {
+    fn test_basic_contest_result_draw() {
         let candidatures_file = "./test-data/candidatures.json";
         let votes_file = "./test-data/voting_ballots_draw.json";
         let contest = Contest::new(candidatures_file);
@@ -234,7 +234,7 @@ mod tests {
     }
     
     #[test]
-    fn test_basic_contest_result_draw() {
+    fn test_basic_contest_result_rust_by_one() {
         let candidatures_file = "./test-data/candidatures.json";
         let votes_file = "./test-data/voting_ballots_RustbyOne.json";
         let contest = Contest::new(candidatures_file);
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(contest_result.results[0].total_count, contest_result.results[1].total_count + 1);
     }
 
-    // Test the function assert with E_INVADID_CONTEST_ID message when a contest_id in votes_file is wrong.
+    // Test the function asserts with E_INVADID_CONTEST_ID message when a contest_id in votes_file is wrong.
     #[test]
     #[should_panic(expected = "Invalid contest ID.")]
     fn test_invalid_ballot_contest_id() {
