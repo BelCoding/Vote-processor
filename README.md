@@ -16,7 +16,7 @@ A simplified tally functionality that processes incoming votes and outputs a res
 To clone the project from GitHub, run the following command in your terminal:
 
 ```
-git clone https://github.com/username/project.git
+git clone https://github.com/BelCoding/Vote-processor.git/
 ```
 
 To build the project using Cargo, navigate to the project directory and run:
