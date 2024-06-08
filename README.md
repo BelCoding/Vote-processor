@@ -1,4 +1,4 @@
-# Project Name
+# Tally - A vote processor
 
 ## Description
 
