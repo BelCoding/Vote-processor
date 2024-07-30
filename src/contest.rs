@@ -1,8 +1,8 @@
 use counter::Counter;
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::{collections::HashMap, fs::File};
+use tracing::{debug, error, info};
 
 // Errors
 const E_INVALID_JSON: &str = "Invalid JSON format.";
@@ -39,9 +39,16 @@ pub struct Contest {
 
 impl Contest {
     /// Reads the candidatures JSON file and returns a Contest Object.
+    #[tracing::instrument(skip(candidatures_file))]
     pub fn new(candidatures_file: &str) -> Self {
+        debug!(
+            candidates_file = candidatures_file,
+            "Reading candidatures file:"
+        );
         let file = std::fs::read_to_string(candidatures_file).expect(E_READ);
         let contest: serde_json::Value = serde_json::from_str(file.as_str()).expect(E_INVALID_JSON);
+        info!("Deserialized candidatures file.");
+        debug!(contest = ?contest, "Deserialized contest value:");
 
         Contest {
             contest_id: contest["id"].as_u64().expect(E_INVALID_JSON),
@@ -50,13 +57,16 @@ impl Contest {
         }
     }
 
+    #[tracing::instrument(skip(array))]
     /// Parses the Json Value that points to the array of candidates.
     fn deserialize_choices_array(array: serde_json::Value) -> HashMap<u64, String> {
+        debug!(target: "choice", array = ?array, "Deserializing choices array:");
         let mut choices: HashMap<u64, String> = HashMap::new();
 
         // Note: There might be a way to deserialize directly into a map
         // look into de serde documetnation
         for element in array.as_array().expect(E_INVALID_JSON) {
+            debug!(target: "choice", element = ?element, "Deserializing element:");
             let json_choice: Choice = serde_json::from_value(element.clone()).expect(E_DESERIALIZE);
             choices.insert(json_choice.id, json_choice.text);
         }
@@ -98,10 +108,12 @@ impl ContestResult {
     /// Every vote as input will contain the context_id and the choice_id (of a candidate).
     ///
     /// Check save_results_json to serialize the results into a file.
+    #[tracing::instrument(skip(contest, input_file))]
     pub fn new(contest: Contest, input_file: &str) -> Self {
         let mut winner_id = 0;
         let mut winner_text = "".to_string();
         let (results, total_votes) = Self::count_ballots(&contest, input_file);
+
         if total_votes > 0 {
             winner_id = results.first().expect(E_WINNER_DATA).choice_id;
             winner_text = contest
@@ -122,10 +134,10 @@ impl ContestResult {
         }
     }
 
-    /// Returns a pair with
-    /// - An ordered vector with the results ready to be serialized
-    /// - The total votes
-    /// The vector is ordered like the most voted first.
+    /// Returns a pair with:
+    /// - An ordered vector(most voted first) with the results ready to be serialized.
+    /// - The count of total votes.
+    #[tracing::instrument(skip(contest, input_file))]
     fn count_ballots(contest: &Contest, input_file: &str) -> (Vec<ChoiceResult>, u64) {
         let mut map: HashMap<u64, u64> = HashMap::new(); // meaning HashMap<choice_id, count>
         let f = File::open(input_file).expect(E_INVALID_JSON);
@@ -133,28 +145,35 @@ impl ContestResult {
 
         let mut total_votes: u64 = 0;
         let mut line = String::new();
-        // Print each line in a loop untill the end of the file is reached
+        // Print each line in a loop until the end of the file is reached
         while reader.read_line(&mut line).is_ok_and(|bytes| bytes > 0) {
             if !line.trim().is_empty() {
-                
+                debug!(target: "ballot", line = ?line, "New ballot's line read:");
                 let ballot: Ballot = serde_json::from_str(line.trim()).expect(E_INVALID_JSON);
-                dbg!(&ballot);
-                assert!(ballot.contest_id == contest.contest_id, "{}", E_INVADID_CONTEST_ID);
-                if !contest.choices.contains_key(&ballot.choice_id) { eprint!("{}", E_INVADID_BALLOT); }
+                debug!(target: "ballot", ballot = ?ballot, "New ballot deserialized:");
+                assert!(
+                    ballot.contest_id == contest.contest_id,
+                    "{}",
+                    E_INVADID_CONTEST_ID
+                );
+                if !contest.choices.contains_key(&ballot.choice_id) {
+                    error!("{}", E_INVADID_BALLOT);
+                }
 
                 // insert in map ballot.choice_id key with value 1, but if it exists update the value +1
                 map.entry(ballot.choice_id)
                     .and_modify(|counter| *counter += 1)
                     .or_insert(1);
-                total_votes = total_votes + 1;
+                total_votes += 1;
             }
 
             line.clear();
         }
 
+        info!(total_votes, "Total votes read:");
         // Order the map, the most common at the beginning
         let ordered_vector = map.into_iter().collect::<Counter<u64, u64>>().most_common();
-        dbg!(&ordered_vector);
+        debug!(ordered_vector = ?ordered_vector, "Ordered vector:");
 
         let mut results: Vec<ChoiceResult> = vec![];
         // Iterate over ordered_vector and save each pair element into results vector
@@ -230,9 +249,12 @@ mod tests {
         let votes_file = "./test-data/voting_ballots_draw.json";
         let contest = Contest::new(candidatures_file);
         let contest_result = ContestResult::new(contest, votes_file);
-        assert_eq!(contest_result.results[0].total_count, contest_result.results[1].total_count);
+        assert_eq!(
+            contest_result.results[0].total_count,
+            contest_result.results[1].total_count
+        );
     }
-    
+
     #[test]
     fn test_basic_contest_result_rust_by_one() {
         let candidatures_file = "./test-data/candidatures.json";
@@ -241,7 +263,10 @@ mod tests {
         let contest_result = ContestResult::new(contest, votes_file);
         assert_eq!(contest_result.winner.text, "Rust");
         assert_eq!(contest_result.winner.id, 1); // Rust won by one vote difference only
-        assert_eq!(contest_result.results[0].total_count, contest_result.results[1].total_count + 1);
+        assert_eq!(
+            contest_result.results[0].total_count,
+            contest_result.results[1].total_count + 1
+        );
     }
 
     // Test the function asserts with E_INVADID_CONTEST_ID message when a contest_id in votes_file is wrong.
@@ -254,7 +279,6 @@ mod tests {
         let _ = ContestResult::new(contest, votes_file);
     }
 
-    
     #[test]
     fn test_save_contest_result() {
         let candidatures_file = "./test-data/candidatures.json";
@@ -262,6 +286,8 @@ mod tests {
         let contest = Contest::new(candidatures_file);
         let contest_result = ContestResult::new(contest, votes_file);
         let output_file = "./test-data/result.json";
-        contest_result.save_results_json(output_file).expect("Error to create the file.");
+        contest_result
+            .save_results_json(output_file)
+            .expect("Error to create the file.");
     }
 }
