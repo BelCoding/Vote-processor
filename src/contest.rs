@@ -192,7 +192,7 @@ impl ContestResult {
         let content: String = serde_json::to_string_pretty(&self).expect(E_SERIALIZE);
         let file = File::create(output_file).expect(E_CREATE_FILE);
         let mut writer = BufWriter::new(file);
-        serde_json::to_writer(&mut writer, &format!("{}", content))?;
+        serde_json::to_writer(&mut writer, &content)?;
         writer.flush()?;
         Ok(())
     }
