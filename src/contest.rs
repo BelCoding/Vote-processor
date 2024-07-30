@@ -1,5 +1,6 @@
 use counter::Counter;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::{collections::HashMap, fs::File};
 use tracing::{debug, error, info};
@@ -38,7 +39,7 @@ pub struct Contest {
 }
 
 impl Contest {
-    /// Reads the candidatures JSON file and returns a Contest Object.
+    /// Deserialze the candidatures JSON file and returns a Contest Object.
     #[tracing::instrument(skip(candidatures_file))]
     pub fn new(candidatures_file: &str) -> Self {
         debug!(
@@ -59,18 +60,16 @@ impl Contest {
 
     #[tracing::instrument(skip(array))]
     /// Parses the Json Value that points to the array of candidates.
-    fn deserialize_choices_array(array: serde_json::Value) -> HashMap<u64, String> {
+    fn deserialize_choices_array(array: Value) -> HashMap<u64, String> {
         debug!(target: "choice", array = ?array, "Deserializing choices array:");
-        let mut choices: HashMap<u64, String> = HashMap::new();
 
-        // Note: There might be a way to deserialize directly into a map
-        // look into de serde documetnation
-        for element in array.as_array().expect(E_INVALID_JSON) {
-            debug!(target: "choice", element = ?element, "Deserializing element:");
-            let json_choice: Choice = serde_json::from_value(element.clone()).expect(E_DESERIALIZE);
-            choices.insert(json_choice.id, json_choice.text);
-        }
-        choices
+        let choices: Vec<Choice> = serde_json::from_value(array).expect(E_DESERIALIZE);
+        let choices_map: HashMap<u64, String> = choices
+            .into_iter()
+            .map(|choice| (choice.id, choice.text))
+            .collect();
+
+        choices_map
     }
 
     // Getter functions for contest id, contest description and choices
